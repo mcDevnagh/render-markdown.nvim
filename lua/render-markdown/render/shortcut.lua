@@ -2,6 +2,24 @@ local Base = require('render-markdown.render.base')
 local Converter = require('render-markdown.lib.converter')
 local Str = require('render-markdown.lib.str')
 
+local notes = {}
+local function update_notes()
+    require('zk.api').list(nil, { select = { 'title', 'filenameStem' } }, function(_, res)
+        if res then
+            local update = false
+            for _, note in ipairs(res) do
+                local current = notes[note.filenameStem]
+                notes[note.filenameStem] = note.title
+                update = update or current == nil or current ~= note.title
+            end
+            if update then
+                require('render-markdown.core.ui').invalidate_cache()
+            end
+        end
+    end)
+end
+update_notes()
+
 ---@class render.md.render.Shortcut: render.md.Renderer
 ---@field private link render.md.Link
 local Render = setmetatable({}, Base)
@@ -106,16 +124,25 @@ function Render:wiki_link()
     self:hide(start_col - 1, start_col)
 
     -- Add icon
-    local icon, highlight = self:from_destination(wiki.icon, wiki.highlight, values[1])
+    local text, highlight = self:from_destination(wiki.icon, wiki.highlight, values[1])
+    if #values > 1 then
+        -- Hide destination if there is an alias
+        self:hide(start_col + 1, start_col + 1 + #values[1] + 1)
+    elseif notes[values[1]] then
+        if #notes[values[1]] > 0 then
+            -- Hide destination if there is a title
+            self:hide(start_col + 1, end_col)
+            -- Display the title as virtual text
+            text = text .. notes[values[1]]
+        end
+    else
+        -- no note? update the cache!
+        update_notes()
+    end
     self.marks:add_over('link', self.node, {
-        virt_text = { { icon, highlight } },
+        virt_text = { { text, highlight } },
         virt_text_pos = 'inline',
     })
-
-    -- Hide destination if there is an alias
-    if #values > 1 then
-        self:hide(start_col + 1, start_col + 1 + #values[1] + 1)
-    end
 
     -- Hide closing outer bracket
     self:hide(end_col, end_col + 1)
